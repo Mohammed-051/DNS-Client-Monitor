@@ -1,0 +1,23 @@
+# Temporary files
+/tmp/
+*.log
+*.tmp
+
+# DNS monitoring temp files
+dns_clients.log
+dns_active_clients.txt
+blocked_ips.txt
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
