@@ -151,7 +151,6 @@ dns-client-monitor/
 ├── README.md                   # This file
 ├── LICENSE                     # MIT License
 ├── .gitignore                  # Git ignore rules
-├── GITHUB_UPLOAD_GUIDE.md      # GitHub setup instructions
 ├── DNS_CONFIGURATION.md        # BIND9 configuration guide
 ├── FIREWALL_SETUP.md          # UFW firewall setup
 ├── CERTIFICATE_SETUP.md        # SSL/TLS certificates
