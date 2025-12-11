@@ -70,21 +70,41 @@ unblock_ip() {
     [[ -z "$ip" ]] && return
     
     if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        echo -e "\e[33m[*] Removing firewall rules for $ip...\e[0m"
+        echo -e "\e[33m[*] Removing all firewall rules for $ip...\e[0m"
         
+        # Delete all possible rule variations
         ufw delete deny from "$ip" to any port 53 >/dev/null 2>&1
         ufw delete deny from "$ip" >/dev/null 2>&1
+        
+        # Find and delete numbered rules containing this IP
+        while ufw status numbered | grep -q "$ip"; do
+            RULE_NUM=$(ufw status numbered | grep "$ip" | head -1 | grep -oE '^\[[0-9]+\]' | tr -d '[]')
+            if [[ -n "$RULE_NUM" ]]; then
+                echo -e "\e[33m[*] Deleting rule #$RULE_NUM...\e[0m"
+                echo "y" | ufw delete "$RULE_NUM" >/dev/null 2>&1
+            else
+                break
+            fi
+        done
+        
         sed -i "/^$ip/d" "$BLOCKED_FILE" 2>/dev/null
+        
+        echo -e "\e[33m[*] Reloading firewall and restarting DNS...\e[0m"
         ufw reload >/dev/null 2>&1
+        systemctl restart bind9 2>/dev/null
         
         echo -e "\e[32m[✓] IP $ip completely unblocked\e[0m"
+        echo -e "\e[32m[✓] DNS server restarted\e[0m"
         
         if ! ufw status | grep -q "$ip"; then
             echo -e "\e[32m[✓] Verified: No firewall rules for this IP\e[0m"
         else
-            echo -e "\e[33m[!] Warning: Some rules may still exist. Run 'sudo ufw status'\e[0m"
+            echo -e "\e[31m[✗] Warning: Some rules still exist!\e[0m"
+            echo ""
+            echo "Remaining rules:"
+            ufw status numbered | grep "$ip"
         fi
-        sleep 3
+        sleep 4
     else
         echo -e "\e[31m[!] Invalid IP format\e[0m"
         sleep 1
@@ -100,6 +120,11 @@ view_stats() {
     
     echo -e "\e[1mTop 10 Active Clients:\e[0m"
     awk '{print $1}' "$STATS_FILE" 2>/dev/null | sort | uniq -c | sort -rn | head -10 | \
+        awk '{printf "  %3d queries - %s\n", $1, $2}'
+    
+    echo ""
+    echo -e "\e[1mMost Queried Domains:\e[0m"
+    awk '{print $2}' "$STATS_FILE" 2>/dev/null | sort | uniq -c | sort -rn | head -10 | \
         awk '{printf "  %3d queries - %s\n", $1, $2}'
     
     echo ""
@@ -124,6 +149,22 @@ view_stats() {
     
     echo ""
     read -p "Press Enter to continue..."
+}
+
+restart_dns() {
+    clear
+    echo -e "\e[33m[*] Restarting DNS server (BIND9)...\e[0m"
+    
+    if systemctl restart bind9 2>/dev/null; then
+        echo -e "\e[32m[✓] DNS server restarted successfully\e[0m"
+        echo ""
+        echo -e "\e[34mStatus:\e[0m $(systemctl is-active bind9)"
+        sleep 2
+    else
+        echo -e "\e[31m[✗] Failed to restart DNS server\e[0m"
+        echo -e "\e[33m[!] Check: sudo systemctl status bind9\e[0m"
+        sleep 3
+    fi
 }
 
 > "$STATS_FILE"
@@ -179,7 +220,7 @@ while true; do
         while read ip timestamp; do
             TIME_AGO=$((CURRENT_TIME - timestamp))
             
-            if grep -q "^$ip$" "$BLOCKED_FILE" 2>/dev/null; then
+            if grep -q "^$ip" "$BLOCKED_FILE" 2>/dev/null; then
                 printf "  \e[31m[BLOCKED]\e[0m %-16s (inactive for %ds)\n" "$ip" "$TIME_AGO"
             else
                 printf "  \e[32m[ACTIVE]\e[0m  %-16s (last query %ds ago)\n" "$ip" "$TIME_AGO"
@@ -207,7 +248,7 @@ while true; do
     
     echo ""
     echo -e "\e[90m───────────────────────────────────────────────────────────────\e[0m"
-    echo -e "  [\e[1mb\e[0m] Block IP  [\e[1mu\e[0m] Unblock IP  [\e[1ms\e[0m] Statistics  [\e[1mq\e[0m] Quit"
+    echo -e "  [\e[1mb\e[0m] Block IP  [\e[1mu\e[0m] Unblock IP  [\e[1ms\e[0m] Stats  [\e[1mr\e[0m] Restart DNS  [\e[1mq\e[0m] Quit"
     echo -e "\e[90m───────────────────────────────────────────────────────────────\e[0m"
     
     read -t $REFRESH_RATE -n 1 -s key
@@ -215,6 +256,7 @@ while true; do
         b) block_ip ;;
         u) unblock_ip ;;
         s) view_stats ;;
+        r) restart_dns ;;
         q) cleanup ;;
     esac
 done
