@@ -34,13 +34,15 @@ block_ip() {
         
         case "$choice" in
             1)
-                ufw deny from "$ip" to any port 53 >/dev/null 2>&1
-                echo "$ip" >> "$BLOCKED_FILE"
+                ufw insert 1 deny from "$ip" to any port 53 >/dev/null 2>&1
+                echo "$ip:dns" >> "$BLOCKED_FILE"
+                ufw reload >/dev/null 2>&1
                 echo -e "\e[31m[!] IP $ip blocked from DNS access only\e[0m"
                 ;;
             2)
-                ufw deny from "$ip" >/dev/null 2>&1
-                echo "$ip" >> "$BLOCKED_FILE"
+                ufw insert 1 deny from "$ip" >/dev/null 2>&1
+                echo "$ip:all" >> "$BLOCKED_FILE"
+                ufw reload >/dev/null 2>&1
                 echo -e "\e[31m[!] IP $ip COMPLETELY blocked (all ports)\e[0m"
                 ;;
             *)
@@ -49,7 +51,14 @@ block_ip() {
                 return
                 ;;
         esac
-        sleep 2
+        
+        echo -e "\e[33m[*] Firewall rule added. Verifying...\e[0m"
+        if ufw status | grep -q "$ip"; then
+            echo -e "\e[32m[✓] Block confirmed in firewall\e[0m"
+        else
+            echo -e "\e[31m[✗] Warning: Rule may not be active. Check 'sudo ufw status'\e[0m"
+        fi
+        sleep 3
     else
         echo -e "\e[31m[!] Invalid IP format\e[0m"
         sleep 1
@@ -61,11 +70,21 @@ unblock_ip() {
     [[ -z "$ip" ]] && return
     
     if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo -e "\e[33m[*] Removing firewall rules for $ip...\e[0m"
+        
         ufw delete deny from "$ip" to any port 53 >/dev/null 2>&1
         ufw delete deny from "$ip" >/dev/null 2>&1
-        sed -i "/$ip/d" "$BLOCKED_FILE" 2>/dev/null
+        sed -i "/^$ip/d" "$BLOCKED_FILE" 2>/dev/null
+        ufw reload >/dev/null 2>&1
+        
         echo -e "\e[32m[✓] IP $ip completely unblocked\e[0m"
-        sleep 2
+        
+        if ! ufw status | grep -q "$ip"; then
+            echo -e "\e[32m[✓] Verified: No firewall rules for this IP\e[0m"
+        else
+            echo -e "\e[33m[!] Warning: Some rules may still exist. Run 'sudo ufw status'\e[0m"
+        fi
+        sleep 3
     else
         echo -e "\e[31m[!] Invalid IP format\e[0m"
         sleep 1
@@ -86,10 +105,22 @@ view_stats() {
     echo ""
     echo -e "\e[1mBlocked IPs:\e[0m"
     if [[ -s "$BLOCKED_FILE" ]]; then
-        cat "$BLOCKED_FILE" | while read ip; do echo "  • $ip"; done
+        while read line; do
+            ip=$(echo "$line" | cut -d: -f1)
+            type=$(echo "$line" | cut -d: -f2)
+            if [[ "$type" == "all" ]]; then
+                echo -e "  \e[31m●\e[0m $ip \e[90m(ALL ports)\e[0m"
+            else
+                echo -e "  \e[33m●\e[0m $ip \e[90m(DNS only)\e[0m"
+            fi
+        done < "$BLOCKED_FILE"
     else
         echo "  None"
     fi
+    
+    echo ""
+    echo -e "\e[1mActive Firewall Rules:\e[0m"
+    ufw status numbered 2>/dev/null | grep -E "DENY|deny" | head -5
     
     echo ""
     read -p "Press Enter to continue..."
