@@ -26,9 +26,29 @@ block_ip() {
     [[ -z "$ip" ]] && return
     
     if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        ufw deny from "$ip" to any port 53 >/dev/null 2>&1
-        echo "$ip" >> "$BLOCKED_FILE"
-        echo -e "\e[31m[!] IP $ip blocked from DNS access\e[0m"
+        echo ""
+        echo "Block options:"
+        echo "  [1] Block DNS only (port 53)"
+        echo "  [2] Block ALL access (DNS + website + everything)"
+        read -p "Choose (1 or 2): " choice
+        
+        case "$choice" in
+            1)
+                ufw deny from "$ip" to any port 53 >/dev/null 2>&1
+                echo "$ip" >> "$BLOCKED_FILE"
+                echo -e "\e[31m[!] IP $ip blocked from DNS access only\e[0m"
+                ;;
+            2)
+                ufw deny from "$ip" >/dev/null 2>&1
+                echo "$ip" >> "$BLOCKED_FILE"
+                echo -e "\e[31m[!] IP $ip COMPLETELY blocked (all ports)\e[0m"
+                ;;
+            *)
+                echo -e "\e[31m[!] Invalid choice\e[0m"
+                sleep 1
+                return
+                ;;
+        esac
         sleep 2
     else
         echo -e "\e[31m[!] Invalid IP format\e[0m"
@@ -42,8 +62,9 @@ unblock_ip() {
     
     if [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         ufw delete deny from "$ip" to any port 53 >/dev/null 2>&1
+        ufw delete deny from "$ip" >/dev/null 2>&1
         sed -i "/$ip/d" "$BLOCKED_FILE" 2>/dev/null
-        echo -e "\e[32m[✓] IP $ip unblocked\e[0m"
+        echo -e "\e[32m[✓] IP $ip completely unblocked\e[0m"
         sleep 2
     else
         echo -e "\e[31m[!] Invalid IP format\e[0m"
